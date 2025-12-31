@@ -116,12 +116,11 @@ impl PopStarSolver {
             // 3. 模拟 (Simulate): 随机模拟直到结束
             // 获取当前节点状态的拷贝进行模拟
             let mut sim_engine = self.nodes[curr_idx].engine.clone();
-            let (_sim_score, context_path) = self.simulate(&mut sim_engine);
+            let (sim_delta, context_path) = self.simulate(&mut sim_engine);
 
-            // 检查是否发现新的历史最高分 (引擎当前分 + 模拟增量 + 结束奖励)
-            // 注意: sim_score 已经包含了 simulate 过程中的得分 + 结束奖励
-            // 但我们需要加上到达 curr_node 之前的得分
-            let current_total = sim_engine.total_score; // simulate 会直接修改这个 clone 的 engine
+            // 检查是否发现新的历史最高分 (当前节点得分 + 模拟增量 + 结束奖励)
+            // sim_delta 已经包含了模拟过程中的得分 + 结束奖励
+            let current_total = self.nodes[curr_idx].engine.total_score + sim_delta;
 
             if current_total > max_score_found {
                 max_score_found = current_total;
@@ -136,26 +135,20 @@ impl PopStarSolver {
             self.backpropagate(curr_idx, score_delta);
         }
 
-        // 返回访问次数最多的子节点动作
-        let root = &self.nodes[self.root_idx];
-        if root.children.is_empty() {
-            return (None, max_score_found, best_path_found);
-        }
+        // 获取最终推荐：优先使用搜索到的全局最佳路径
+        let (best_action, final_path) = self.get_final_recommendation(&best_path_found);
 
-        let best_child_idx = *root
-            .children
-            .iter()
-            .max_by_key(|&&idx| self.nodes[idx].visits)
-            .unwrap();
-        let best_action = self.nodes[best_child_idx].action;
-
-        (best_action, max_score_found, best_path_found)
+        (best_action, max_score_found, final_path)
     }
 
     /// 使用 UCB 公式选择最佳子节点
     fn best_ucb_child(&self, parent_idx: usize) -> usize {
         let parent = &self.nodes[parent_idx];
-        let log_n = (parent.visits as f64).ln(); // precompute log(N)
+        let log_n = (parent.visits as f64).ln();
+
+        // 调整探索系数以适应游戏得分规模 (平均得分为几百到几千)
+        // 使用较大的 C 值 (如 100.0) 以鼓励在早期探索
+        let c = 100.0;
 
         *parent
             .children
@@ -164,8 +157,8 @@ impl PopStarSolver {
                 let a = &self.nodes[a_idx];
                 let b = &self.nodes[b_idx];
 
-                let ucb_a = a.value / (a.visits as f64) + (2.0 * log_n / a.visits as f64).sqrt();
-                let ucb_b = b.value / (b.visits as f64) + (2.0 * log_n / b.visits as f64).sqrt();
+                let ucb_a = a.value / (a.visits as f64) + c * (log_n / a.visits as f64).sqrt();
+                let ucb_b = b.value / (b.visits as f64) + c * (log_n / b.visits as f64).sqrt();
                 ucb_a.partial_cmp(&ucb_b).unwrap()
             })
             .unwrap()
@@ -179,24 +172,29 @@ impl PopStarSolver {
         let mut rng = rand::rng();
 
         loop {
-            // 快速获取所有合法移动，不再全盘扫描
-            // 这里我们优化一下：与其每次生成所有 move，不如只生成 move 的坐标
-            // 为了最快速度，我们还是得得一次性找出来。
-            // 优化点：Node::get_all_moves 已经很快了，但我们不需要存 copy 的 group，只需要坐标和group本身
-
             let moves = Node::get_all_moves(engine);
             if moves.is_empty() {
                 break;
             }
 
-            // 随机选择
-            let ((r, c), group) = moves.choose(&mut rng).unwrap().clone();
+            // 权重选择: 连消权重。
+            // 越大的块被选中的概率越高，这有助于更早发现高分路径
+            // 使用 (n^2) 作为权重，模拟真实游戏中对大块的偏好
+            let chosen = moves
+                .choose_weighted(&mut rng, |m| {
+                    let n = m.1.len() as f32;
+                    n * n
+                })
+                .unwrap()
+                .clone();
+
+            let ((r, c), group) = chosen;
             engine.eliminate(r, c, Some(group));
             path.push((r, c));
         }
 
         let end_bonus = engine.calculate_end_bonus();
-        let total = engine.total_score + end_bonus; // 注意 engine.total_score 已经变了
+        let total = engine.total_score + end_bonus;
         (total - initial_score, path)
     }
 
@@ -221,5 +219,36 @@ impl PopStarSolver {
         }
         path.reverse();
         path
+    }
+}
+
+impl PopStarSolver {
+    /// 获取最终推荐。
+    /// 对于单人益智游戏，首选全盘搜索到的历史最佳路径的第一步。
+    fn get_final_recommendation(
+        &self,
+        best_path: &[(usize, usize)],
+    ) -> (Option<(usize, usize)>, Vec<(usize, usize)>) {
+        let root = &self.nodes[self.root_idx];
+        if root.children.is_empty() {
+            return (None, Vec::new());
+        }
+
+        // 策略: 如果有历史最佳路径且非空，直接返回。
+        // 这是最符合用户"追求最高分"直觉的选择。
+        if !best_path.is_empty() {
+            return (Some(best_path[0]), best_path.to_vec());
+        }
+
+        // 降级策略: 访问次数最多的子节点
+        let best_child_idx = *root
+            .children
+            .iter()
+            .max_by_key(|&&idx| self.nodes[idx].visits)
+            .unwrap();
+        let best_action = self.nodes[best_child_idx].action;
+        let best_path_for_child = self.reconstruct_path(best_child_idx);
+
+        (best_action, best_path_for_child)
     }
 }
