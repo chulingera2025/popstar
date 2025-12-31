@@ -1,0 +1,10 @@
+torch
+torchvision
+opencv-python
+numpy
+Pillow
+matplotlib
+mss
+pyautogui
+pyyaml
+maturin
