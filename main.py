@@ -127,34 +127,54 @@ class PopStarApp:
             self.sync_board(use_cache=True)
         canvas.bind("<ButtonPress-1>", on_down); canvas.bind("<B1-Motion>", on_move); canvas.bind("<ButtonRelease-1>", on_up)
 
-    def _get_screenshot(self):
-        # 1. 优先使用 MSS (高效、跨平台)
         try:
             with mss.mss() as sct:
-                # 抓取主显示器 (monitors[1]) 或 全部 (monitors[0])
                 mon = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
                 sct_img = sct.grab(mon)
                 return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
-        except Exception as e:
-            print(f"MSS screenshot failed: {e}")
+        except:
+            pass
 
         # 2. 降级尝试 PyAutoGUI (如果已安装)
         try:
             import pyautogui
             return pyautogui.screenshot()
-        except ImportError:
+        except:
             pass
-        except Exception as e:
-            print(f"PyAutoGUI screenshot failed: {e}")
             
-        # 3. 最后尝试 PIL ImageGrab (Windows/macOS 效果较好，Linux 依赖后端)
+        # 3. 尝试 PIL ImageGrab
         try:
             from PIL import ImageGrab
             return ImageGrab.grab()
-        except Exception as e:
-            print(f"ImageGrab failed: {e}")
+        except:
+            pass
+            
+        # 4. 尝试 pyscreenshot (通用封装库，支持部分 Wayland)
+        try:
+            import pyscreenshot as ImageGrab
+            return ImageGrab.grab()
+        except:
+            pass
 
-        messagebox.showerror("错误", "无法获取屏幕截图，请检查环境配置。")
+        # 5. Wayland/系统命令回退 (关键修复)
+        # 现代 Linux (Wayland) 禁止纯 Python 库截屏，必须调用系统工具
+        tools = [
+            (["spectacle", "-b", "-n", "-o", "/tmp/popstar_s.png"], "/tmp/popstar_s.png"),
+            (["gnome-screenshot", "-f", "/tmp/popstar_s.png"], "/tmp/popstar_s.png"),
+            (["scrot", "/tmp/popstar_s.png"], "/tmp/popstar_s.png"),
+            (["grim", "/tmp/popstar_s.png"], "/tmp/popstar_s.png")
+        ]
+        
+        for cmd, path in tools:
+            if shutil.which(cmd[0]):
+                try:
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if os.path.exists(path):
+                        return Image.open(path).convert("RGB")
+                except:
+                    continue
+
+        messagebox.showerror("错误", "无法获取屏幕截图。\n检测到可能在 Wayland 环境下，且未找到支持的截图工具(spectacle/gnome-screenshot/scrot/grim)。")
         return None
 
     def _get_roi_image(self, use_cache=False):

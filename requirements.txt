@@ -8,3 +8,4 @@ mss
 pyautogui
 pyyaml
 maturin
+pyscreenshot

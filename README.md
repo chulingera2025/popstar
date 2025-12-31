@@ -16,7 +16,8 @@
 
 ```
 .
-├── ai_model/           # PyTorch 模型定与训练脚本 (CV部分)
+├── ai_model/           # PyTorch 模型定义与训练脚本 (CV部分)
+│   ├── dataset.py      # 数据集加载与增强
 │   ├── model.py        # CNN 网络结构
 │   ├── train.py        # 训练脚本
 │   └── predict.py      # 预测/推理接口
@@ -25,12 +26,14 @@
 │   └── engine.py       # Python 版引擎 (已废弃/仅作参考)
 ├── popstar_rs/         # Rust 核心扩展库源码
 │   ├── src/
-│   │   ├── engine.rs   # 游戏其引擎 (Result 2024)
+│   │   ├── engine.rs   # 游戏核心引擎 (Rust 2024)
 │   │   ├── solver.rs   # MCTS 求解器 (Rust 2024)
 │   │   └── lib.rs      # PyO3 绑定入口
 │   └── Cargo.toml      # Rust 项目配置
+├── png/                # 颜色素材图片
 ├── main.py             # GUI 主程序入口
 ├── benchmark_solver.py # 性能测试脚本
+├── test_engine.py      # 引擎逻辑验证脚本
 └── requirements.txt    # Python 依赖列表
 ```
 
