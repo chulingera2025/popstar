@@ -12,6 +12,7 @@ import shutil
 from ai_model.predict import PopStarPredictor
 from game.engine import PopStarEngine
 from game.solver import PopStarSolver
+from benchmark_solver import run_benchmark
 
 class PopStarApp:
     def __init__(self, root):
@@ -37,6 +38,18 @@ class PopStarApp:
         self.planned_path = [] # 存储 AI 规划好的动作序列
         self.best_move = None
         self.is_analyzing = False
+
+        # 4. 性能压测与自动迭代次数调整 (固定 1 秒计算量)
+        try:
+            print("正在进行启动性能压测...")
+            # 运行一个小规模压测 (5000次) 来估算 IPS
+            self.ips = run_benchmark(iterations=10000, silent=True)
+            self.solver_iterations = int(self.ips * 1.0) # 对应 1 秒的计算强度
+            print(f"压测完成: IPS={self.ips:.0f}, 设置迭代次数={self.solver_iterations}")
+        except Exception as e:
+            print(f"压测失败: {e}")
+            self.ips = 2000
+            self.solver_iterations = 2000
 
         self.setup_ui()
 
@@ -99,6 +112,10 @@ class PopStarApp:
         self.predicted_label = ttk.Label(info_frame, text="预计最大:\n --- ", 
                                          font=("Arial", 11, "bold"), foreground="#2e7d32")
         self.predicted_label.pack(anchor=tk.W, pady=5)
+
+        self.perf_label = ttk.Label(info_frame, text=f"引擎性能: {self.ips/1000:.1f}k IPS", 
+                                    font=("Arial", 9), foreground="gray")
+        self.perf_label.pack(anchor=tk.W, pady=2)
 
         self.render_board()
 
@@ -231,7 +248,8 @@ class PopStarApp:
 
     def _run_solver(self):
         solver = PopStarSolver(self.engine)
-        move, score, path = solver.solve(iterations=2000) # 提高迭代次数以获得稳定长路径
+        # 使用动态计算的迭代次数，固定占用 1 秒 CPU 时间
+        move, score, path = solver.solve(iterations=self.solver_iterations) 
         self.root.after(0, lambda: self._on_solver_done(move, score, path))
 
     def _on_solver_done(self, move, score, path):
