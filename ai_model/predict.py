@@ -22,6 +22,8 @@ class PopStarPredictor:
     def predict_cell(self, cell_img):
         """预测单个格子的颜色"""
         # cell_img 为 PIL Image
+        if cell_img.mode != 'RGB':
+            cell_img = cell_img.convert('RGB')
         img_tensor = self.transform(cell_img).unsqueeze(0).to(self.device)
         with torch.no_grad():
             output = self.model(img_tensor)
