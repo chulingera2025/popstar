@@ -127,6 +127,9 @@ class PopStarApp:
             self.sync_board(use_cache=True)
         canvas.bind("<ButtonPress-1>", on_down); canvas.bind("<B1-Motion>", on_move); canvas.bind("<ButtonRelease-1>", on_up)
 
+
+    def _get_screenshot(self):
+        # 1. 优先使用 MSS (高效、跨平台)
         try:
             with mss.mss() as sct:
                 mon = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
